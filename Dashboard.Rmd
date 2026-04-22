@@ -139,6 +139,4 @@ This dashboard utilizes a custom spatial dataset merging 2010 US Census tract bo
 
 ### GitHub Repository & Source Code
 
-**Dashboard Source Code Repository:** [Insert your GitHub URL here]
-
-*(Note: The source code is maintained on GitHub as per the project rubric requirements.)*
+**Dashboard Source Code Repository:** [https://github.com/TJ-Z25/Atlanta-Food-Access-Dashboard]

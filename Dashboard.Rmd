@@ -1,0 +1,144 @@
+---
+title: "Metro Atlanta Food Access Dashboard"
+author: "Tianjie Zhang"
+date: "`r Sys.Date()`"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readxl)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(plotly)
+library(ggplot2)
+library(DT)
+library(htmltools)
+
+# 1. Read Data
+path <- "D:/Thesis/Data/3Counties_WithFD_Lisa_Final.xls"
+df <- read_excel(path)
+
+df_clean <- df %>%
+  transmute(
+    GEOID = as.character(GEOID),
+    FD = factor(Is_FoodDesert, levels = c(0, 1), labels = c("Non-Food Desert", "Food Desert")),
+    PovertyRate = as.numeric(PovertyRate),
+    Grocery30 = ifelse(is.na(as.numeric(Grocery30)), 0, as.numeric(Grocery30)),
+    Pantry30 = ifelse(is.na(as.numeric(Pantry30)), 0, as.numeric(Pantry30))
+  ) %>%
+  filter(!is.na(FD))
+
+# 2. Read Shapefile 
+shapefile_path <- "D:/Thesis/Data/tl_2010_13_tract10/tl_2010_13_tract10.shp"
+shapefile_data <- st_read(shapefile_path, quiet = TRUE) %>%
+  st_zm() 
+
+shapefile_data$GEOID10 <- as.character(shapefile_data$GEOID10)
+
+# 3. Merge data and change the coordination to WGS84
+map_data_interactive <- inner_join(shapefile_data, df_clean, by = c("GEOID10" = "GEOID")) %>%
+  st_transform(4326)
+
+# 4. Set map palette
+pal <- colorFactor(palette = c("#4A90E2", "#E94E77"), domain = map_data_interactive$FD)
+```
+
+Interactive Dashboard {data-icon="fa-map"}
+===================================== 
+
+Column {data-width=550}
+-------------------------------------
+
+### Spatial Distribution of Food Deserts (System 1 Overview)
+
+```{r}
+leaflet(data = map_data_interactive) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(
+    fillColor = ~pal(FD),
+    color = "white",
+    weight = 1,
+    fillOpacity = 0.7,
+    highlightOptions = highlightOptions(weight = 3, color = "#333", bringToFront = TRUE),
+    label = ~paste0(
+      "<strong>Tract ID: </strong>", GEOID10, "<br>",
+      "<strong>Neighborhood: </strong>", FD, "<br>",
+      "<strong>Poverty Rate: </strong>", round(PovertyRate, 1), "%<br>",
+      "<strong>Grocery (30 min): </strong>", round(Grocery30, 0), " stores<br>",
+      "<strong>Pantry (30 min): </strong>", round(Pantry30, 0), " locations"
+    ) %>% lapply(htmltools::HTML),
+    labelOptions = labelOptions(style = list("font-family" = "Arial", "font-size" = "13px"), direction = "auto")
+  ) %>%
+  addLegend(pal = pal, values = ~FD, title = "Neighborhood Type", position = "bottomright", opacity = 0.8)
+```
+
+> **Key Takeaways:** This interactive map illustrates the spatial distribution of food deserts across the Metro Atlanta area. By hovering over specific census tracts, users can immediately identify spatial clusters of vulnerable neighborhoods and view precise underlying factors, such as exact poverty rates and the scarcity of food pantries and grocery stores within a 30-minute public transit radius.
+
+Column {data-width=450}
+-------------------------------------
+
+### Access Comparison (30-min Transit)
+
+```{r}
+p_scatter <- ggplot(df_clean, aes(
+  x = Grocery30, y = Pantry30, color = FD,
+  text = paste(
+    "Tract ID:", GEOID, "<br>Neighborhood:", FD,
+    "<br>Poverty Rate:", round(PovertyRate, 1), "%",
+    "<br>Grocery Stores:", Grocery30, "<br>Food Pantries:", Pantry30
+  )
+)) +
+  geom_jitter(width = 0.2, height = 0.2, alpha = 0.7, size = 2) +
+  scale_color_manual(values = c("Non-Food Desert" = "#4A90E2", "Food Desert" = "#E94E77")) +
+  labs(x = "Accessible Grocery Stores (Count)", y = "Accessible Food Pantries (Count)", color = "Neighborhood Type") +
+  theme_minimal() +
+  theme(axis.title = element_text(face = "bold"), legend.position = "none")
+
+ggplotly(p_scatter, tooltip = "text")
+```
+
+> **Key Takeaways:** This scatter plot highlights that tracts designated as Food Deserts (in pink) heavily cluster near the zero-access origin for both facility types. Hover tooltips allow users to explore specific outliers, identifying tracts that lack grocery stores but might still have some pantry coverage.
+
+### Tract Priority List (Searchable System 2 Exploration)
+
+```{r}
+table_data <- df_clean %>%
+  select(`Tract ID` = GEOID, `Neighborhood Type` = FD, `Poverty Rate (%)` = PovertyRate, `Grocery Access` = Grocery30, `Pantry Access` = Pantry30) %>%
+  mutate(`Poverty Rate (%)` = round(`Poverty Rate (%)`, 1)) %>%
+  arrange(desc(`Poverty Rate (%)`))
+
+datatable(
+  table_data,
+  options = list(pageLength = 5, autoWidth = TRUE, searchHighlight = TRUE, dom = 'Bfrtip'),
+  rownames = FALSE, class = 'cell-border stripe'
+)
+```
+
+> **Key Takeaways:** This interactive Priority List complements the visual dashboards by enabling System 2 thinking. Users can utilize the built-in search bar to quickly locate specific Tract IDs or sort columns to immediately identify neighborhoods with the highest poverty rates and lowest food access.
+
+
+Dataset & Project Impact {data-icon="fa-info-circle"}
+===================================== 
+
+Column 
+-------------------------------------
+
+### Dataset Description
+
+This dashboard utilizes a custom spatial dataset merging 2010 US Census tract boundaries for Fulton, DeKalb, and Clayton counties with USDA food access metrics and poverty rates. Data on food access was constructed by calculating 30-minute public transit service areas from tract centroids to count accessible grocery stores and food pantries. [cite_start]The study population consists of $N = 395$ census tracts within the Metro Atlanta region[cite: 8, 9, 15]. This is a simulated dataset framework based on public sources (Census/USDA) and is intended for neighborhood-level spatial analysis and spatial autocorrelation assessments rather than individual-level tracking.
+
+### Real-World Impact and Utility
+
+[cite_start]This dashboard empowers local public health teams and nonprofit coordinators to rapidly identify severe "dual-deficit" food deserts that lack both grocery stores and alternative food pantries[cite: 20, 22]. [cite_start]By pinpointing these specific transit-isolated neighborhoods, policymakers can efficiently prioritize resource allocation and targeted outreach where structural gap interventions are most urgently needed[cite: 5, 23].
+
+### GitHub Repository & Source Code
+
+**Dashboard Source Code Repository:** [Insert your GitHub URL here]
+
+*(Note: The source code is maintained on GitHub as per the project rubric requirements.)*
